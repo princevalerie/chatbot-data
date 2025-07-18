@@ -1,0 +1,28 @@
+# Core Streamlit and Data Processing
+streamlit
+pandas
+
+# Environment Variables
+python-dotenv
+load_dotenv
+
+# AI and Language Models
+google-generativeai
+
+# Visualization
+matplotlib
+seaborn
+
+# Database Connectivity
+psycopg2-binary
+mysql-connector-python
+sqlalchemy
+
+# File Processing (for file connector)
+pandasql
+
+# Optional Visualization Enhancements
+wordcloud
+
+# Development and Type Hints
+typing-extensions 
