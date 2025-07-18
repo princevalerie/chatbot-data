@@ -6,6 +6,7 @@ pandas
 python-dotenv
 load_dotenv
 
+
 # AI and Language Models
 google-generativeai
 
@@ -26,3 +27,4 @@ wordcloud
 
 # Development and Type Hints
 typing-extensions 
+openpyxl
