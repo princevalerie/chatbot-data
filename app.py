@@ -186,10 +186,11 @@ def get_table_list(engine, db_type):
     try:
         if db_type == "PostgreSQL":
             query = """
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            ORDER BY table_name
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND (table_type = 'BASE TABLE' OR table_type = 'VIEW')
+            ORDER BY table_name;
             """
         elif db_type == "MySQL":
             query = """
