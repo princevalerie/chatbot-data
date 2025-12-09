@@ -95,7 +95,7 @@ def detect_env_api_key():
         try:
             genai.configure(api_key=api_key)
             # Test with a simple model initialization
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            model = genai.GenerativeModel('gemini-3-pro-preview"')
             return api_key, source, True
         except Exception as e:
             return api_key, source, False
@@ -106,7 +106,7 @@ def configure_gemini(api_key):
     """Configure Gemini API"""
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-3-pro-preview"')
         return model
     except Exception as e:
         st.error(f"Error configuring Gemini API: {str(e)}")
