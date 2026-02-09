@@ -4,11 +4,9 @@ pandas
 
 # Environment Variables
 python-dotenv
-load_dotenv
 
-
-# AI and Language Models
-google-generativeai
+# AI and Language Models - Using Groq API
+groq
 
 # Visualization
 matplotlib
