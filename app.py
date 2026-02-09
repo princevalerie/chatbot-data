@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import pandasql as ps
-import google.generativeai as genai
+from groq import Groq
 import matplotlib.pyplot as plt
 import seaborn as sns
 from io import StringIO
@@ -74,42 +74,57 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def detect_env_api_key():
-    """Detect and validate Gemini API key from environment variables"""
+    """Detect and validate Groq API key from environment variables"""
     api_key = None
     source = None
     
     # Try to get API key from environment
     if DOTENV_AVAILABLE:
-        api_key = os.getenv('GEMINI_API_KEY')
+        api_key = os.getenv('GROQ_API_KEY')
         if api_key:
             source = ".env file"
     
     # If not found in .env, try system environment
     if not api_key:
-        api_key = os.environ.get('GEMINI_API_KEY')
+        api_key = os.environ.get('GROQ_API_KEY')
         if api_key:
             source = "system environment"
     
     # Validate the API key by testing it
     if api_key:
         try:
-            genai.configure(api_key=api_key)
-            # Test with a simple model initialization
-            model = genai.GenerativeModel('gemini-2.0-flash"')
+            client = Groq(api_key=api_key)
+            # Test with a simple request to check if API key is valid
             return api_key, source, True
         except Exception as e:
             return api_key, source, False
     
     return None, None, False
 
-def configure_gemini(api_key):
-    """Configure Gemini API"""
+def check_model_availability(client, model_name):
+    """Check if the specified model is available"""
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-3-pro-preview"')
-        return model
+        # Try to make a simple completion to test model availability
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": "test"}],
+            max_tokens=5
+        )
+        return True
     except Exception as e:
-        st.error(f"Error configuring Gemini API: {str(e)}")
+        error_msg = str(e)
+        if "model" in error_msg.lower() or "not found" in error_msg.lower():
+            return False
+        # If other error, assume model might be available but other issue
+        return True
+
+def configure_groq(api_key):
+    """Configure Groq API and return client"""
+    try:
+        client = Groq(api_key=api_key)
+        return client
+    except Exception as e:
+        st.error(f"Error configuring Groq API: {str(e)}")
         return None
 
 # Initialize session state
@@ -141,6 +156,10 @@ if 'env_api_source' not in st.session_state:
     st.session_state.env_api_source = None
 if 'env_api_valid' not in st.session_state:
     st.session_state.env_api_valid = False
+if 'model_name' not in st.session_state:
+    st.session_state.model_name = "moonshotai/kimi-k2-instruct-0905"
+if 'model_available' not in st.session_state:
+    st.session_state.model_available = None
 
 # Detect environment API key on startup
 if not st.session_state.env_api_key:
@@ -394,8 +413,8 @@ def read_uploaded_file(uploaded_file):
     except Exception as e:
         raise Exception(f"Error reading file: {str(e)}")
 
-def generate_sql_query(user_query, model):
-    """Generate SQL query from natural language using Gemini"""
+def generate_sql_query(user_query, client):
+    """Generate SQL query from natural language using Groq"""
     try:
         # Create context about available tables from both files and databases
         schema_context = "Available tables and their schemas:\n"
@@ -449,8 +468,17 @@ def generate_sql_query(user_query, model):
         SQL Query:
         """
         
-        response = model.generate_content(prompt)
-        sql_query = response.text.strip()
+        # Use Groq API to generate content
+        completion = client.chat.completions.create(
+            model=st.session_state.model_name,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=1024
+        )
+        
+        sql_query = completion.choices[0].message.content.strip()
         
         # Clean up the response to get only SQL
         sql_query = re.sub(r'```sql|```|SQL Query:|Query:', '', sql_query).strip()
@@ -500,8 +528,8 @@ def execute_sql_query(sql_query):
         st.error(f"Error executing SQL query: {str(e)}")
         return None
 
-def create_visualization(df, query, model):
-    """Create visualizations using Gemini to generate matplotlib/seaborn code with support for wordcloud"""
+def create_visualization(df, query, client):
+    """Create visualizations using Groq to generate matplotlib/seaborn code with support for wordcloud"""
     try:
         if df is None or df.empty or len(df) == 0:
             return None
@@ -527,7 +555,7 @@ def create_visualization(df, query, model):
         if WORDCLOUD_AVAILABLE:
             available_libs.append("WordCloud")
         
-        # Create enhanced data summary for Gemini
+        # Create enhanced data summary for Groq
         data_info = f"""
         DataFrame shape: {df.shape}
         Columns info:
@@ -618,8 +646,17 @@ def create_visualization(df, query, model):
         Generate the visualization code:
         """
         
-        response = model.generate_content(prompt)
-        viz_code = response.text.strip()
+        # Use Groq API to generate content
+        completion = client.chat.completions.create(
+            model=st.session_state.model_name,
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2048
+        )
+        
+        viz_code = completion.choices[0].message.content.strip()
         
         # Clean up the response
         viz_code = re.sub(r'```python|```', '', viz_code).strip()
@@ -653,7 +690,7 @@ with st.sidebar:
     st.title("🔧 Configuration")
     
     # API Key configuration section
-    st.subheader("🔑 Gemini API Configuration")
+    st.subheader("🔑 Groq API Configuration")
     
     # Show environment API key status if detected
     if st.session_state.env_api_key:
@@ -667,14 +704,15 @@ with st.sidebar:
                 
                 if manual_override:
                     api_key = st.text_input(
-                        "Manual Gemini API Key",
+                        "Manual Groq API Key",
                         type="password",
                         value="",
-                        help="Enter your Google Gemini API key to override environment variable"
+                        help="Enter your Groq API key to override environment variable"
                     )
                     
                     if api_key and api_key != st.session_state.api_key:
                         st.session_state.api_key = api_key
+                        st.session_state.model_available = None  # Reset model check
                         st.info("🔄 Using manual API key")
                 else:
                     # Use environment API key
@@ -686,27 +724,84 @@ with st.sidebar:
             
             # Show manual input for invalid environment key
             api_key = st.text_input(
-                "Gemini API Key",
+                "Groq API Key",
                 type="password",
                 value="",
-                help="Enter your Google Gemini API key (environment key is invalid)"
+                help="Enter your Groq API key (environment key is invalid)"
             )
             
             if api_key != st.session_state.api_key:
                 st.session_state.api_key = api_key
+                st.session_state.model_available = None  # Reset model check
     else:
         # No environment API key found, show manual input
         st.info("📝 No .env file detected. Please enter API key manually.")
         
         api_key = st.text_input(
-            "Gemini API Key",
+            "Groq API Key",
             type="password",
             value=st.session_state.api_key,
-            help="Enter your Google Gemini API key"
+            help="Enter your Groq API key"
         )
         
         if api_key != st.session_state.api_key:
             st.session_state.api_key = api_key
+            st.session_state.model_available = None  # Reset model check
+    
+    # Model configuration section
+    if st.session_state.api_key:
+        st.divider()
+        st.subheader("🤖 Model Configuration")
+        
+        # Check model availability if not already checked
+        if st.session_state.model_available is None and st.session_state.api_key:
+            with st.spinner("Checking model availability..."):
+                client = configure_groq(st.session_state.api_key)
+                if client:
+                    st.session_state.model_available = check_model_availability(
+                        client, 
+                        st.session_state.model_name
+                    )
+        
+        # Show model status
+        if st.session_state.model_available is True:
+            st.success(f"✅ Model Available: {st.session_state.model_name}")
+        elif st.session_state.model_available is False:
+            st.error(f"❌ Model Not Available: {st.session_state.model_name}")
+            st.warning("⚠️ Please enter a different model name below")
+            
+            # Show model input for manual entry
+            new_model = st.text_input(
+                "Enter Model Name",
+                value=st.session_state.model_name,
+                help="Enter the exact model name from Groq (e.g., llama-3.3-70b-versatile, mixtral-8x7b-32768)",
+                key="model_input"
+            )
+            
+            if new_model != st.session_state.model_name:
+                st.session_state.model_name = new_model
+                st.session_state.model_available = None  # Trigger recheck
+                st.rerun()
+            
+            # Show button to recheck model
+            if st.button("🔄 Check Model Again"):
+                st.session_state.model_available = None
+                st.rerun()
+        else:
+            st.info("⏳ Model availability check pending...")
+        
+        # Show available models info
+        with st.expander("📋 Common Groq Models", expanded=False):
+            st.markdown("""
+            **Popular Groq Models:**
+            - `moonshotai/kimi-k2-instruct-0905` - Kimi K2 (Recommended)
+            - `llama-3.3-70b-versatile` - Llama 3.3 70B
+            - `llama-3.1-70b-versatile` - Llama 3.1 70B
+            - `mixtral-8x7b-32768` - Mixtral 8x7B
+            - `gemma2-9b-it` - Gemma 2 9B
+            
+            Visit [Groq Console](https://console.groq.com/) to see all available models.
+            """)
     
     # Show .env setup instructions if needed
     if not st.session_state.env_api_valid:
@@ -717,14 +812,17 @@ with st.sidebar:
             1. Create a `.env` file in your project root
             2. Add this line to the file:
                ```
-               GEMINI_API_KEY=your_actual_api_key_here
+               GROQ_API_KEY=your_actual_api_key_here
                ```
             3. Restart the application
             4. API key input will be automatically hidden
             
-            **Requirements:**
-            - Install python-dotenv: `pip install python-dotenv`
-            - Keep .env file in the same directory as app.py
+            **Get Your Free API Key:**
+            - Visit: https://console.groq.com/
+            - Create account or login
+            - Go to API Keys section
+            - Create new API key
+
             """)
     
     st.divider()
@@ -937,14 +1035,16 @@ st.markdown("Ask questions about your uploaded files and database tables in natu
 
 # Check if API key and data are available
 if not st.session_state.api_key:
-    st.warning("⚠️ Please enter your Gemini API key in the sidebar to start chatting.")
+    st.warning("⚠️ Please enter your Groq API key in the sidebar to start chatting.")
+elif st.session_state.model_available is False:
+    st.error("❌ The selected model is not available. Please enter a valid model name in the sidebar.")
 elif not st.session_state.dataframes:
     st.info("📊 Please upload data files or connect to a database in the sidebar to begin analysis.")
 else:
-    # Configure Gemini
-    model = configure_gemini(st.session_state.api_key)
+    # Configure Groq
+    client = configure_groq(st.session_state.api_key)
     
-    if model:
+    if client:
         # Chat interface
         st.subheader("💬 Chat with your Data")
         
@@ -1035,7 +1135,7 @@ else:
                     # Auto visualization - show immediately
                     if query_id not in st.session_state.visualizations:
                         with st.spinner("🎨 Creating visualization..."):
-                            fig = create_visualization(display_df, user_msg, model)
+                            fig = create_visualization(display_df, user_msg, client)
                             if fig:
                                 st.session_state.visualizations[query_id] = fig
                             else:
@@ -1054,7 +1154,7 @@ else:
                                 with st.spinner("🎨 Creating visualization..."):
                                     # Use current query for context
                                     current_query = st.session_state.edited_queries.get(query_id, user_msg)
-                                    fig = create_visualization(display_df, current_query, model)
+                                    fig = create_visualization(display_df, current_query, client)
                                     if fig:
                                         st.session_state.visualizations[query_id] = fig
                                         st.rerun()
@@ -1071,7 +1171,7 @@ else:
                             if st.button(f"🔄 Re-visualize", key=f"reviz_btn_{i}"):
                                 with st.spinner("🎨 Re-creating visualization..."):
                                     current_query = st.session_state.edited_queries.get(query_id, user_msg)
-                                    fig = create_visualization(display_df, current_query, model)
+                                    fig = create_visualization(display_df, current_query, client)
                                     if fig:
                                         st.session_state.visualizations[query_id] = fig
                                         st.rerun()
@@ -1093,7 +1193,7 @@ else:
         if user_query:
             # Generate SQL query
             with st.spinner("🧠 Generating SQL query..."):
-                sql_query = generate_sql_query(user_query, model)
+                sql_query = generate_sql_query(user_query, client)
             
             if sql_query:
                 # Execute SQL query
@@ -1115,7 +1215,7 @@ else:
                     if st.session_state.auto_visualization:
                         query_id = f"query_{len(st.session_state.chat_history) - 1}"
                         with st.spinner("🎨 Creating visualization..."):
-                            fig = create_visualization(result_df, user_query, model)
+                            fig = create_visualization(result_df, user_query, client)
                             if fig:
                                 st.session_state.visualizations[query_id] = fig
                             else:
@@ -1183,4 +1283,4 @@ if not st.session_state.chat_history:
     - **Override Option**: Manually override environment key if needed
     - **Security**: Environment variables are more secure than manual input
     - **Setup**: Install `python-dotenv` and restart the application
-    """) 
+    """)
